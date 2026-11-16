@@ -146,3 +146,11 @@ function getUnassignedGrocyChores(string $apiKey): array
 
     return grocyGet('/api/chores?' . $query, $apiKey);
 }
+
+/**
+ * Get an individual chore from Grocy.
+ */
+function getGrocyChore(int $choreId, string $apiKey): array
+{
+    return grocyGet('/api/chores/' . $choreId, $apiKey);
+}
