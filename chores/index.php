@@ -2,7 +2,8 @@
 
 require_once __DIR__ . '../../bootstrap.php';
 require_once __DIR__ . '../../config/users.php';
-require_once __DIR__ . '/grocy/chores.php';
+require_once __DIR__ . '../../api/grocy/chores.php';
+require_once __DIR__ . '../../helpers/formatChoreDueDate.php';
 
 $logged_in = $_SESSION['logged_in'] ?? false;
 
@@ -11,6 +12,7 @@ if(!$logged_in)
 {
     header('Location: ../../');
 }
+$_SESSION['using_mock_grocy'] = false;
 $logged_in_as = $_SESSION['logged_in_as'] ?? null;
 $username = $logged_in_as;
 
@@ -25,10 +27,38 @@ $grocyApiKey = $user['api_keys']['grocy'] ?? null;
 if (empty($grocyApiKey)) {
     throw new RuntimeException('Grocy API key not configured');
 }
+
+
+$completionMessage = null;
+$completionError = null;
+
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['complete_chore_id'])
+) {
+    try {
+        $choreId = (int) $_POST['complete_chore_id'];
+
+        if ($choreId <= 0) {
+            throw new RuntimeException('Invalid chore ID');
+        }
+
+        completeGrocyChore($choreId, $grocyApiKey);
+
+        $completionMessage = 'Chore completed successfully!';
+
+    } catch (Throwable $e) {
+        $completionError = $e->getMessage();
+    }
+}
+
+
+
 // Get chores
 try {
     $overdueChores = getOverdueGrocyChores($grocyApiKey);
     $todaysChores = getTodaysGrocyChores($grocyApiKey);
+    $upcomingChores = getUpcommingGrocyChores($grocyApiKey);
     $unassignedChores = getUnassignedGrocyChores($grocyApiKey);
 
 } catch (RuntimeException $e) {
@@ -36,11 +66,14 @@ try {
 
     $overdueChores = [];
     $todaysChores = [];
+    $upcomingChores = [];
     $unassignedChores = [];
 
     $choreError = 'Unable to load chores. Please try again later.';
 }
-// var_dump($chores);
+
+
+
 ?>
 
 <!DOCTYPE html>
@@ -53,6 +86,78 @@ try {
         href="https://cdn.jsdelivr.net/npm/bootstrap@6.0.0-alpha.1/dist/css/bootstrap.min.css"
         rel="stylesheet"
     >
+    <style>
+        .mock-warning {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 9999;
+            background: #842029;
+            color: #fff;
+            border-top: 4px solid #dc3545;
+            padding: 12px 20px;
+            box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.25);
+        }
+
+        .mock-warning-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        .mock-warning-icon {
+            font-size: 30px;
+            color: #ffc107;
+        }
+
+        .mock-warning strong {
+            font-size: 14px;
+            letter-spacing: 1px;
+        }
+
+        .mock-warning-description {
+            font-size: 13px;
+            opacity: 0.9;
+            margin-top: 2px;
+        }
+
+        .mock-indicator {
+            width: 11px;
+            height: 11px;
+            background: #ffc107;
+            border-radius: 50%;
+            margin-left: 10px;
+            flex-shrink: 0;
+            animation: mock-pulse 1.5s infinite;
+        }
+
+        @keyframes mock-pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        body {
+            padding-bottom: 75px;
+        }
+
+        @media (max-width: 576px) {
+            .mock-warning-content {
+                justify-content: flex-start;
+            }
+
+            .mock-warning {
+                padding: 12px;
+            }
+        }
+    </style>
 </head>
 <body>
     <nav class="navbar md:navbar-expand bg-1">
@@ -110,37 +215,62 @@ try {
 
             <p><?= htmlspecialchars($choreError) ?></p>
 
-        <?php elseif (empty($overdueChores) && empty($todaysChores) && empty($unassignedChores)): ?>
+        <?php elseif (empty($overdueChores) && empty($todaysChores) && empty($upcomingChores) && empty($unassignedChores)): ?>
 
             <p>You have no chores assigned.</p>
 
         <?php else: ?>
-            <div class="row border rounded">
-                <div class="col-8 border rounded">
+            <div class="row">
+                <div class="col-8">
                     <h1 class="text-center">My Chores</h1>
 
-                    <div class="row border rounded">
-                        <div class="col-6 border rounded">
+                    <div class="row">
+                        <div class="col-4">
                             <h2 class="text-center">Overdue Chores</h2>
                             <?php foreach ($overdueChores as $chore): ?>
-                                <?= htmlspecialchars($chore['chore_name'] ?? 'Unnamed chore') ?>
+                                <?php require __DIR__ . '../../partials/chore-card.php'; ?>
                             <?php endforeach; ?>
                         </div>
 
-                        <div class="col-6 border rounded">
+                        <div class="col-4">
                             <h2 class="text-center">Todays Chores</h2>
                             <?php foreach ($todaysChores as $chore): ?>
-                                <?= htmlspecialchars($chore['chore_name'] ?? 'Unnamed chore') ?>
+                                <?php require __DIR__ . '../../partials/chore-card.php'; ?>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="col-4">
+                            <h2 class="text-center">Upcoming Chores</h2>
+                            <?php foreach ($upcomingChores as $chore): ?>
+                                <?php require __DIR__ . '../../partials/chore-card.php'; ?>
                             <?php endforeach; ?>
                         </div>
                     </div>
                 </div>
 
-                <div class="col-4 border rounded">
+                <div class="col-4">
                     <h1 class="text-center">Group Chores</h1>
+                    <h2>&nbsp;</h2>
+                    <?php foreach ($unassignedChores as $chore): ?>
+                        <?php require __DIR__ . '../../partials/chore-card.php'; ?>
+                    <?php endforeach; ?>
                 </div>
             </div>
         <?php endif; ?>
     </main>
+    <?php if (!empty($_SESSION['using_mock_grocy'])): ?>
+        <div class="mock-warning">
+            <div class="mock-warning-content">
+                <span class="mock-warning-icon">⚠</span>
+                <div>
+                    <strong>WARNING: MOCK DATA IN USE</strong>
+                    <div class="mock-warning-description">
+                        Grocy is unavailable. You are viewing dummy data.
+                        Changes will not be saved to your real Grocy instance.
+                    </div>
+                </div>
+                <span class="mock-indicator"></span>
+            </div>
+        </div>
+    <?php endif; ?>
 </body>
 </html>
