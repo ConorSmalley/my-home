@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/config/users.php';
+require_once __DIR__ . '/helpers/formatChoreDueDate.php';
 
 $logged_in = $_SESSION['logged_in'] ?? false;
 $logged_in_as = $_SESSION['logged_in_as'] ?? null;
