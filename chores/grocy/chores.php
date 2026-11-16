@@ -70,6 +70,12 @@ function getGrocyUserId(string $apiKey): int
  * $from = Inclusive start date/time.
  * $to   = Exclusive end date/time.
  */
+/**
+ * Get chores assigned to a user within an optional date range.
+ *
+ * $from = Inclusive start date/time.
+ * $to   = Exclusive end date/time.
+ */
 function getGrocyChores(
     string $apiKey,
     ?DateTimeImmutable $from = null,
@@ -96,7 +102,21 @@ function getGrocyChores(
         'query' => $filters
     ]);
 
-    return grocyGet('/api/chores?' . $query, $apiKey);
+    $chores = grocyGet('/api/chores?' . $query, $apiKey);
+
+    // Retrieve additional details for each chore.
+    foreach ($chores as &$chore) {
+        $details = getGrocyChore(
+            (int) $chore['chore_id'],
+            $apiKey
+        );
+
+        $chore['description'] = $details['description'] ?? '';
+    }
+
+    unset($chore);
+
+    return $chores;
 }
 
 /**
